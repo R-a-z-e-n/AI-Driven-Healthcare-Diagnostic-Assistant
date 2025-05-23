@@ -1,0 +1,98 @@
+# ===================== INSTALLS =====================
+!pip install -q ipywidgets pandas matplotlib scikit-learn xgboost lime shap dowhy tensorflow
+
+# ===================== IMPORTS =====================
+import pandas as pd, numpy as np, io, random, time, shap, lime
+import matplotlib.pyplot as plt
+import ipywidgets as widgets
+from IPython.display import display
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
+from sklearn.cluster import KMeans
+from sklearn.metrics import classification_report
+from sklearn.model_selection import train_test_split
+from sklearn.decomposition import PCA
+import xgboost as xgb
+import shap, lime.lime_tabular
+from dowhy import CausalModel
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+
+# ===================== UI =====================
+task_dropdown = widgets.Dropdown(
+    options=['Original Demo', 'Causal Inference', 'Healthcare Diagnostics', 'Explainable Churn'],
+    description='Task:',
+    layout=widgets.Layout(width='400px')
+)
+upload = widgets.FileUpload(accept='.csv', multiple=False)
+run_button = widgets.Button(description="Run", button_style='success')
+out = widgets.Output()
+
+# ===================== TASK FUNCTIONS =====================
+
+def run_original():
+    X, _ = make_classification(n_samples=300, n_features=4, random_state=42)
+    model = KMeans(n_clusters=3).fit(X)
+    X_pca = PCA(n_components=2).fit_transform(X)
+    plt.scatter(X_pca[:,0], X_pca[:,1], c=model.labels_, cmap='viridis')
+    plt.title("KMeans Clustering")
+    plt.show()
+
+def run_causal_inference():
+    df = pd.DataFrame({
+        'age': np.random.normal(40, 10, 1000),
+        'exposure': np.random.binomial(1, 0.5, 1000),
+        'spend': lambda x: 20 + x['age'] * 0.2 + x['exposure'] * 10 + np.random.normal(0, 3, 1000)
+    })
+    df['spend'] = df['spend'](df)
+    model = CausalModel(
+        data=df,
+        treatment='exposure',
+        outcome='spend',
+        common_causes=['age']
+    )
+    model.identify_effect()
+    estimate = model.estimate_effect(model.identified_estimand, method_name="backdoor.linear_regression")
+    print("Estimated Causal Effect of Marketing Exposure on Spend:", estimate.value)
+
+def run_healthcare_diag():
+    X, y = make_classification(n_samples=1000, n_features=10, random_state=42)
+    model = xgb.XGBClassifier().fit(X, y)
+    explainer = shap.Explainer(model)
+    shap_values = explainer(X[:100])
+    shap.plots.beeswarm(shap_values)
+
+def run_churn_explain():
+    X, y = make_classification(n_samples=500, n_features=10, random_state=0)
+    model = RandomForestClassifier().fit(X, y)
+    explainer = shap.Explainer(model)
+    shap.plots.waterfall(explainer(X[0]))
+
+    expl = lime.lime_tabular.LimeTabularExplainer(
+        training_data=X,
+        feature_names=[f'Feature {i}' for i in range(X.shape[1])],
+        class_names=['Stay', 'Churn'],
+        mode='classification'
+    )
+    exp = expl.explain_instance(X[0], model.predict_proba)
+    exp.show_in_notebook()
+
+# ===================== CALLBACK =====================
+def on_run_clicked(b):
+    out.clear_output()
+    with out:
+        task = task_dropdown.value
+        if task == 'Original Demo':
+            run_original()
+        elif task == 'Causal Inference':
+            run_causal_inference()
+        elif task == 'Healthcare Diagnostics':
+            run_healthcare_diag()
+        elif task == 'Explainable Churn':
+            run_churn_explain()
+
+run_button.on_click(on_run_clicked)
+
+# ===================== DISPLAY UI =====================
+display(widgets.VBox([task_dropdown, upload, run_button, out]))
